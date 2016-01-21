@@ -1,0 +1,57 @@
+使用phantomjs爬取 http://roll.news.sina.com.cn
+
+1.一开始打算使用 scrapy进行爬取，但是scrapy处理js比较麻烦（至少笔者不会），而http://roll.news.sina.com.cn的页面使用js生成（js生成，表明html源码不同于
+浏览器渲染后的效果）
+
+2.phantomjs很好地解释了js，可以说，phantomjs相当于一个headless的browser，（phantomjs基于webkit）。
+
+3.几个核心问题
+	1.如何操作dom
+		代码中使用js API+CSS选择器进行dom元素的选取
+		var a = document.querySelector('#d_list .pagebox .pagebox_pre a');
+		var elements = document.querySelectorAll('#d_list ul li .c_time');
+		笔者使用了xpath，但是phantomjs报错
+	2.如何触发js
+		在元素选取之后，执行  a.click();//<a onclick="function"></a>
+		注意，不是a.onclick();//笔者为此debug好久
+	3.因为ajax是异步的，如何确保ajax完全加载完毕后再进行页面的解析（最核心的问题）
+	主要使用，window.setTimeout(function(){},times)//在times时间后执行function()，function的返回值即为window.setTimeout的返回值
+	一定要明白的一点是：  虽然    在times时间后执行function()，但是window.setTimeout函数调用之后的代码会被继续执行。
+	
+	方案一：延时
+	window.setTimeout(function(){},3000)；
+	sleep(3000);
+	使用上述代码，企图“延时”3s来让ajax刷新完毕，但是这样的代码是不能实行效果的。
+	因为，ajax刷新，phantomjs接收response需要占用cpu，如果sleep是通过占用cpu来达到“延时”效果的话，在延时期间，ajax刷新并不能继续，
+	因为cpu资源被sleep函数占用。如果使用多核处理器，或许此代码可行。
+	
+	方案二：request response
+	使用phantomjs的两个callback函数，page.onResourceReceived  page.onResourceRequested
+	但是有些弊端：resource 可能被 多模块地返回，对于一个页面，可能需要发出n个request，得到n个response才能加载完毕，n是未知的，这便是弊端
+	
+	方案三：确保 window.setTimeout(function(){},3000)后面无代码或者只有 window.setTimeout(function(){},3000)，递归实现
+	确保window.setTimeout(function(){},3000)后面无代码，保证了3s内cpu资源被ajax渲染占用
+	
+	核心代码
+	//递归获取数据
+	function getData(flag){
+	  if(flag == false){
+	    phantom.exit();
+	    return;
+	  }
+	  //获取数据，更新状态
+	  window.setTimeout(function(){
+	    var itemsNext = new Array();
+	    var flagNext;
+	    itemsNext = page.evaluate(getAllNewsForSinglePage);
+	    ++count;
+	    showForSinglePage(itemsNext);
+	    page.render("n"+count+".png");
+	    flagNext = page.evaluate(hasNextPage);
+	    console.log("-------------------------------------"+count+"\n");
+	    console.log("-------------------------------------"+flagNext+"\n");
+	    getData(flagNext);
+	  },4000);
+	}
+	
+	
